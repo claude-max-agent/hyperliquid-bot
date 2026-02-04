@@ -11,11 +11,53 @@ import (
 
 // Config represents application configuration
 type Config struct {
-	App      AppConfig      `yaml:"app"`
-	Exchange ExchangeConfig `yaml:"exchange"`
-	Strategy StrategyConfig `yaml:"strategy"`
-	Risk     RiskConfig     `yaml:"risk"`
-	Log      LogConfig      `yaml:"log"`
+	App         AppConfig         `yaml:"app"`
+	Exchange    ExchangeConfig    `yaml:"exchange"`
+	DataSources DataSourcesConfig `yaml:"data_sources"`
+	Strategy    StrategyConfig    `yaml:"strategy"`
+	Risk        RiskConfig        `yaml:"risk"`
+	Log         LogConfig         `yaml:"log"`
+}
+
+// DataSourcesConfig represents external data sources settings
+type DataSourcesConfig struct {
+	CoinGlass        CoinGlassConfig        `yaml:"coinglass"`
+	WhaleAlert       WhaleAlertConfig       `yaml:"whale_alert"`
+	LunarCrush       LunarCrushConfig       `yaml:"lunarcrush"`
+	FedWatch         FedWatchConfig         `yaml:"fedwatch"`
+	TradingEconomics TradingEconomicsConfig `yaml:"trading_economics"`
+	Symbols          []string               `yaml:"symbols"`
+}
+
+// CoinGlassConfig represents CoinGlass API settings
+type CoinGlassConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	APIKey  string `yaml:"api_key"`
+}
+
+// WhaleAlertConfig represents Whale Alert API settings
+type WhaleAlertConfig struct {
+	Enabled  bool    `yaml:"enabled"`
+	APIKey   string  `yaml:"api_key"`
+	MinValue float64 `yaml:"min_value"`
+}
+
+// LunarCrushConfig represents LunarCrush API settings
+type LunarCrushConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	APIKey  string `yaml:"api_key"`
+}
+
+// FedWatchConfig represents CME FedWatch API settings
+type FedWatchConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	APIKey  string `yaml:"api_key"`
+}
+
+// TradingEconomicsConfig represents Trading Economics API settings
+type TradingEconomicsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	APIKey  string `yaml:"api_key"`
 }
 
 // AppConfig represents application settings
@@ -127,6 +169,33 @@ func (c *Config) loadEnvOverrides() {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			c.Risk.MaxLeverage = f
 		}
+	}
+
+	// Data sources settings
+	if v := os.Getenv("COINGLASS_API_KEY"); v != "" {
+		c.DataSources.CoinGlass.APIKey = v
+		c.DataSources.CoinGlass.Enabled = true
+	}
+	if v := os.Getenv("WHALE_ALERT_API_KEY"); v != "" {
+		c.DataSources.WhaleAlert.APIKey = v
+		c.DataSources.WhaleAlert.Enabled = true
+	}
+	if v := os.Getenv("WHALE_ALERT_MIN_VALUE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			c.DataSources.WhaleAlert.MinValue = f
+		}
+	}
+	if v := os.Getenv("LUNARCRUSH_API_KEY"); v != "" {
+		c.DataSources.LunarCrush.APIKey = v
+		c.DataSources.LunarCrush.Enabled = true
+	}
+	if v := os.Getenv("FEDWATCH_API_KEY"); v != "" {
+		c.DataSources.FedWatch.APIKey = v
+		c.DataSources.FedWatch.Enabled = true
+	}
+	if v := os.Getenv("TRADING_ECONOMICS_API_KEY"); v != "" {
+		c.DataSources.TradingEconomics.APIKey = v
+		c.DataSources.TradingEconomics.Enabled = true
 	}
 }
 
