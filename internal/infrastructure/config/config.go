@@ -23,6 +23,7 @@ type Config struct {
 type DataSourcesConfig struct {
 	CoinGlass   CoinGlassConfig   `yaml:"coinglass"`
 	WhaleAlert  WhaleAlertConfig  `yaml:"whale_alert"`
+	LunarCrush  LunarCrushConfig  `yaml:"lunarcrush"`
 	Symbols     []string          `yaml:"symbols"`
 }
 
@@ -37,6 +38,12 @@ type WhaleAlertConfig struct {
 	Enabled  bool    `yaml:"enabled"`
 	APIKey   string  `yaml:"api_key"`
 	MinValue float64 `yaml:"min_value"`
+}
+
+// LunarCrushConfig represents LunarCrush API settings
+type LunarCrushConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	APIKey  string `yaml:"api_key"`
 }
 
 // AppConfig represents application settings
@@ -163,6 +170,10 @@ func (c *Config) loadEnvOverrides() {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			c.DataSources.WhaleAlert.MinValue = f
 		}
+	}
+	if v := os.Getenv("LUNARCRUSH_API_KEY"); v != "" {
+		c.DataSources.LunarCrush.APIKey = v
+		c.DataSources.LunarCrush.Enabled = true
 	}
 }
 

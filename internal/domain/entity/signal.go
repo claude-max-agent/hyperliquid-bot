@@ -90,6 +90,41 @@ func (w *WhaleAlert) GetAlertType() WhaleAlertType {
 	}
 }
 
+// SocialSentiment represents social media sentiment data
+type SocialSentiment struct {
+	Symbol            string                     `json:"symbol"`
+	Source            string                     `json:"source"` // "lunarcrush", "messari", etc.
+	Sentiment         float64                    `json:"sentiment"` // 0-1 scale, 0.5 = neutral
+	SentimentScore    float64                    `json:"sentiment_score"` // -1 to 1, negative = bearish
+	PositiveRatio     float64                    `json:"positive_ratio"`
+	NegativeRatio     float64                    `json:"negative_ratio"`
+	NeutralRatio      float64                    `json:"neutral_ratio"`
+	SocialVolume      int64                      `json:"social_volume"` // Number of posts
+	Interactions      int64                      `json:"interactions"` // Total interactions
+	Contributors      int64                      `json:"contributors"` // Unique contributors
+	GalaxyScore       float64                    `json:"galaxy_score,omitempty"` // LunarCrush proprietary
+	AltRank           int                        `json:"alt_rank,omitempty"` // LunarCrush proprietary
+	PlatformBreakdown map[string]PlatformMetrics `json:"platform_breakdown,omitempty"`
+	Timestamp         time.Time                  `json:"timestamp"`
+}
+
+// PlatformMetrics represents sentiment metrics for a specific platform
+type PlatformMetrics struct {
+	Positive int `json:"positive"`
+	Neutral  int `json:"neutral"`
+	Negative int `json:"negative"`
+}
+
+// TrendingTopic represents a trending social topic
+type TrendingTopic struct {
+	Topic        string    `json:"topic"`
+	Rank         int       `json:"rank"`
+	Sentiment    float64   `json:"sentiment"` // 0-1 scale
+	Interactions int64     `json:"interactions"`
+	PostCount    int       `json:"post_count"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
 // MarketSignal represents aggregated market signal for trading decisions
 type MarketSignal struct {
 	Symbol    string    `json:"symbol"`
@@ -103,6 +138,9 @@ type MarketSignal struct {
 
 	// Whale activity
 	RecentWhaleAlerts []*WhaleAlert `json:"recent_whale_alerts,omitempty"`
+
+	// Social sentiment
+	SocialSentiment *SocialSentiment `json:"social_sentiment,omitempty"`
 
 	// Aggregated signals
 	Bias       SignalBias `json:"bias"`       // overall market bias
@@ -182,6 +220,17 @@ func (s *MarketSignal) AnalyzeSignal() {
 		}
 	}
 
+	// Analyze social sentiment
+	if s.SocialSentiment != nil {
+		dataPoints++
+		score := s.SocialSentiment.SentimentScore // -1 to 1
+		if score > 0.2 {
+			bullishScore += 0.25 * score
+		} else if score < -0.2 {
+			bearishScore += 0.25 * (-score)
+		}
+	}
+
 	// Calculate final signal
 	totalScore := bullishScore + bearishScore
 	if totalScore == 0 {
@@ -202,6 +251,6 @@ func (s *MarketSignal) AnalyzeSignal() {
 		s.Strength = 0
 	}
 
-	// Confidence based on data availability
-	s.Confidence = float64(dataPoints) / 4.0
+	// Confidence based on data availability (5 possible data sources)
+	s.Confidence = float64(dataPoints) / 5.0
 }

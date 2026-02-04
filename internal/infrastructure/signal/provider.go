@@ -7,6 +7,7 @@ import (
 
 	"github.com/zono819/hyperliquid-bot/internal/domain/entity"
 	"github.com/zono819/hyperliquid-bot/internal/infrastructure/coinglass"
+	"github.com/zono819/hyperliquid-bot/internal/infrastructure/lunarcrush"
 	"github.com/zono819/hyperliquid-bot/internal/infrastructure/whalealert"
 )
 
@@ -14,6 +15,7 @@ import (
 type Provider struct {
 	coinglass  *coinglass.Client
 	whalealert *whalealert.Client
+	lunarcrush *lunarcrush.Client
 
 	mu             sync.RWMutex
 	running        bool
@@ -21,8 +23,9 @@ type Provider struct {
 	signalHandlers []func(*entity.MarketSignal)
 
 	// Cached data
-	recentWhaleAlerts map[string][]*entity.WhaleAlert // symbol -> alerts
-	recentLiquidations map[string][]*entity.Liquidation // symbol -> liquidations
+	recentWhaleAlerts  map[string][]*entity.WhaleAlert     // symbol -> alerts
+	recentLiquidations map[string][]*entity.Liquidation    // symbol -> liquidations
+	recentSentiment    map[string]*entity.SocialSentiment  // symbol -> sentiment
 }
 
 // Config holds provider configuration
@@ -30,6 +33,7 @@ type Config struct {
 	CoinGlassAPIKey   string
 	WhaleAlertAPIKey  string
 	WhaleMinValue     float64
+	LunarCrushAPIKey  string
 	Symbols           []string
 }
 
@@ -37,6 +41,7 @@ type Config struct {
 func NewProvider(cfg Config) *Provider {
 	var cg *coinglass.Client
 	var wa *whalealert.Client
+	var lc *lunarcrush.Client
 
 	if cfg.CoinGlassAPIKey != "" {
 		cg = coinglass.NewClient(cfg.CoinGlassAPIKey)
@@ -44,14 +49,19 @@ func NewProvider(cfg Config) *Provider {
 	if cfg.WhaleAlertAPIKey != "" {
 		wa = whalealert.NewClient(cfg.WhaleAlertAPIKey, cfg.WhaleMinValue)
 	}
+	if cfg.LunarCrushAPIKey != "" {
+		lc = lunarcrush.NewClient(cfg.LunarCrushAPIKey)
+	}
 
 	return &Provider{
 		coinglass:          cg,
 		whalealert:         wa,
+		lunarcrush:         lc,
 		symbols:            cfg.Symbols,
 		signalHandlers:     make([]func(*entity.MarketSignal), 0),
 		recentWhaleAlerts:  make(map[string][]*entity.WhaleAlert),
 		recentLiquidations: make(map[string][]*entity.Liquidation),
+		recentSentiment:    make(map[string]*entity.SocialSentiment),
 	}
 }
 
@@ -79,6 +89,13 @@ func (p *Provider) Start(ctx context.Context) error {
 		}
 	}
 
+	// Connect LunarCrush
+	if p.lunarcrush != nil {
+		if err := p.lunarcrush.Connect(ctx); err != nil {
+			// Log warning but continue
+		}
+	}
+
 	// Start background data collection
 	go p.collectData(ctx)
 
@@ -95,6 +112,16 @@ func (p *Provider) Start(ctx context.Context) error {
 	// Subscribe to whale alerts
 	if p.whalealert != nil {
 		p.whalealert.SubscribeWhaleAlerts(ctx, p.onWhaleAlert)
+	}
+
+	// Subscribe to sentiment updates
+	if p.lunarcrush != nil {
+		for _, symbol := range p.symbols {
+			sym := symbol // Capture for closure
+			p.lunarcrush.SubscribeSentiment(ctx, symbol, func(sentiment *entity.SocialSentiment) {
+				p.onSentimentUpdate(sym, sentiment)
+			})
+		}
 	}
 
 	return nil
@@ -115,6 +142,9 @@ func (p *Provider) Stop(ctx context.Context) error {
 	}
 	if p.whalealert != nil {
 		p.whalealert.Disconnect(ctx)
+	}
+	if p.lunarcrush != nil {
+		p.lunarcrush.Disconnect(ctx)
 	}
 
 	return nil
@@ -190,6 +220,13 @@ func (p *Provider) onWhaleAlert(alert *entity.WhaleAlert) {
 	p.recentWhaleAlerts[symbol] = filtered
 }
 
+// onSentimentUpdate handles incoming sentiment updates
+func (p *Provider) onSentimentUpdate(symbol string, sentiment *entity.SocialSentiment) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.recentSentiment[symbol] = sentiment
+}
+
 // mapBlockchainToSymbol maps blockchain name to trading symbol
 func mapBlockchainToSymbol(blockchain string) string {
 	switch blockchain {
@@ -226,10 +263,21 @@ func (p *Provider) GetMarketSignal(ctx context.Context, symbol string) (*entity.
 		}
 	}
 
-	// Get cached whale alerts and liquidations
+	// Get LunarCrush sentiment data
+	if p.lunarcrush != nil {
+		if sentiment, err := p.lunarcrush.GetSentiment(ctx, symbol); err == nil {
+			signal.SocialSentiment = sentiment
+		}
+	}
+
+	// Get cached whale alerts, liquidations, and sentiment
 	p.mu.RLock()
 	signal.RecentWhaleAlerts = p.recentWhaleAlerts[symbol]
 	signal.RecentLiquidations = p.recentLiquidations[symbol]
+	// Use cached sentiment if fresh API call failed
+	if signal.SocialSentiment == nil {
+		signal.SocialSentiment = p.recentSentiment[symbol]
+	}
 	p.mu.RUnlock()
 
 	// Analyze and set bias/strength/confidence
@@ -284,6 +332,17 @@ func GetSignalSummary(signal *entity.MarketSignal) string {
 			}
 		}
 		summary += "\n  Whale Inflow: $" + formatLargeNumber(inflow) + ", Outflow: $" + formatLargeNumber(outflow)
+	}
+	if signal.SocialSentiment != nil {
+		s := signal.SocialSentiment
+		sentimentStr := "neutral"
+		if s.SentimentScore > 0.2 {
+			sentimentStr = "bullish"
+		} else if s.SentimentScore < -0.2 {
+			sentimentStr = "bearish"
+		}
+		summary += "\n  Social Sentiment: " + sentimentStr + " (score: " + formatFloat(s.SentimentScore) + ")"
+		summary += "\n  Social Volume: " + formatLargeNumber(float64(s.SocialVolume)) + " posts, " + formatLargeNumber(float64(s.Interactions)) + " interactions"
 	}
 
 	return summary
