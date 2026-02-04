@@ -2,6 +2,7 @@ package signal
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -398,7 +399,7 @@ func formatPercent(v float64) string {
 }
 
 func formatFloat(v float64) string {
-	return string(rune(int(v*100))) + "." + string(rune(int(v*10000)%100))
+	return fmt.Sprintf("%.2f", v)
 }
 
 func formatLargeNumber(v float64) string {
