@@ -21,10 +21,12 @@ type Config struct {
 
 // DataSourcesConfig represents external data sources settings
 type DataSourcesConfig struct {
-	CoinGlass   CoinGlassConfig   `yaml:"coinglass"`
-	WhaleAlert  WhaleAlertConfig  `yaml:"whale_alert"`
-	LunarCrush  LunarCrushConfig  `yaml:"lunarcrush"`
-	Symbols     []string          `yaml:"symbols"`
+	CoinGlass        CoinGlassConfig        `yaml:"coinglass"`
+	WhaleAlert       WhaleAlertConfig       `yaml:"whale_alert"`
+	LunarCrush       LunarCrushConfig       `yaml:"lunarcrush"`
+	FedWatch         FedWatchConfig         `yaml:"fedwatch"`
+	TradingEconomics TradingEconomicsConfig `yaml:"trading_economics"`
+	Symbols          []string               `yaml:"symbols"`
 }
 
 // CoinGlassConfig represents CoinGlass API settings
@@ -42,6 +44,18 @@ type WhaleAlertConfig struct {
 
 // LunarCrushConfig represents LunarCrush API settings
 type LunarCrushConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	APIKey  string `yaml:"api_key"`
+}
+
+// FedWatchConfig represents CME FedWatch API settings
+type FedWatchConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	APIKey  string `yaml:"api_key"`
+}
+
+// TradingEconomicsConfig represents Trading Economics API settings
+type TradingEconomicsConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	APIKey  string `yaml:"api_key"`
 }
@@ -174,6 +188,14 @@ func (c *Config) loadEnvOverrides() {
 	if v := os.Getenv("LUNARCRUSH_API_KEY"); v != "" {
 		c.DataSources.LunarCrush.APIKey = v
 		c.DataSources.LunarCrush.Enabled = true
+	}
+	if v := os.Getenv("FEDWATCH_API_KEY"); v != "" {
+		c.DataSources.FedWatch.APIKey = v
+		c.DataSources.FedWatch.Enabled = true
+	}
+	if v := os.Getenv("TRADING_ECONOMICS_API_KEY"); v != "" {
+		c.DataSources.TradingEconomics.APIKey = v
+		c.DataSources.TradingEconomics.Enabled = true
 	}
 }
 

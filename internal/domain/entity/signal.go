@@ -142,6 +142,13 @@ type MarketSignal struct {
 	// Social sentiment
 	SocialSentiment *SocialSentiment `json:"social_sentiment,omitempty"`
 
+	// Macro indicators (imported from macro package to avoid circular import)
+	MacroBias       SignalBias `json:"macro_bias,omitempty"`
+	MacroStrength   float64    `json:"macro_strength,omitempty"`
+	MacroConfidence float64    `json:"macro_confidence,omitempty"`
+	FedCutProb      float64    `json:"fed_cut_prob,omitempty"`
+	FedHikeProb     float64    `json:"fed_hike_prob,omitempty"`
+
 	// Aggregated signals
 	Bias       SignalBias `json:"bias"`       // overall market bias
 	Strength   float64    `json:"strength"`   // signal strength (0-1)
@@ -231,6 +238,19 @@ func (s *MarketSignal) AnalyzeSignal() {
 		}
 	}
 
+	// Analyze macro signals (Fed policy)
+	if s.FedCutProb > 0 || s.FedHikeProb > 0 {
+		dataPoints++
+		// Rate cuts are bullish for risk assets (crypto)
+		if s.FedCutProb > 0.5 {
+			bullishScore += 0.2 * s.FedCutProb
+		}
+		// Rate hikes are bearish
+		if s.FedHikeProb > 0.3 {
+			bearishScore += 0.2 * s.FedHikeProb
+		}
+	}
+
 	// Calculate final signal
 	totalScore := bullishScore + bearishScore
 	if totalScore == 0 {
@@ -251,6 +271,6 @@ func (s *MarketSignal) AnalyzeSignal() {
 		s.Strength = 0
 	}
 
-	// Confidence based on data availability (5 possible data sources)
-	s.Confidence = float64(dataPoints) / 5.0
+	// Confidence based on data availability (6 possible data sources)
+	s.Confidence = float64(dataPoints) / 6.0
 }
