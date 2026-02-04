@@ -8,14 +8,16 @@ import (
 	"github.com/zono819/hyperliquid-bot/internal/domain/entity"
 	"github.com/zono819/hyperliquid-bot/internal/infrastructure/coinglass"
 	"github.com/zono819/hyperliquid-bot/internal/infrastructure/lunarcrush"
+	"github.com/zono819/hyperliquid-bot/internal/infrastructure/macro"
 	"github.com/zono819/hyperliquid-bot/internal/infrastructure/whalealert"
 )
 
 // Provider aggregates multiple data sources for market signals
 type Provider struct {
-	coinglass  *coinglass.Client
-	whalealert *whalealert.Client
-	lunarcrush *lunarcrush.Client
+	coinglass     *coinglass.Client
+	whalealert    *whalealert.Client
+	lunarcrush    *lunarcrush.Client
+	macroProvider *macro.Provider
 
 	mu             sync.RWMutex
 	running        bool
@@ -26,15 +28,18 @@ type Provider struct {
 	recentWhaleAlerts  map[string][]*entity.WhaleAlert     // symbol -> alerts
 	recentLiquidations map[string][]*entity.Liquidation    // symbol -> liquidations
 	recentSentiment    map[string]*entity.SocialSentiment  // symbol -> sentiment
+	cachedMacro        *entity.MacroSignal                 // macro signal
 }
 
 // Config holds provider configuration
 type Config struct {
-	CoinGlassAPIKey   string
-	WhaleAlertAPIKey  string
-	WhaleMinValue     float64
-	LunarCrushAPIKey  string
-	Symbols           []string
+	CoinGlassAPIKey        string
+	WhaleAlertAPIKey       string
+	WhaleMinValue          float64
+	LunarCrushAPIKey       string
+	FedWatchAPIKey         string
+	TradingEconomicsAPIKey string
+	Symbols                []string
 }
 
 // NewProvider creates a new signal provider
@@ -42,6 +47,7 @@ func NewProvider(cfg Config) *Provider {
 	var cg *coinglass.Client
 	var wa *whalealert.Client
 	var lc *lunarcrush.Client
+	var mp *macro.Provider
 
 	if cfg.CoinGlassAPIKey != "" {
 		cg = coinglass.NewClient(cfg.CoinGlassAPIKey)
@@ -52,11 +58,18 @@ func NewProvider(cfg Config) *Provider {
 	if cfg.LunarCrushAPIKey != "" {
 		lc = lunarcrush.NewClient(cfg.LunarCrushAPIKey)
 	}
+	if cfg.FedWatchAPIKey != "" || cfg.TradingEconomicsAPIKey != "" {
+		mp = macro.NewProvider(macro.Config{
+			FedWatchAPIKey:         cfg.FedWatchAPIKey,
+			TradingEconomicsAPIKey: cfg.TradingEconomicsAPIKey,
+		})
+	}
 
 	return &Provider{
 		coinglass:          cg,
 		whalealert:         wa,
 		lunarcrush:         lc,
+		macroProvider:      mp,
 		symbols:            cfg.Symbols,
 		signalHandlers:     make([]func(*entity.MarketSignal), 0),
 		recentWhaleAlerts:  make(map[string][]*entity.WhaleAlert),
@@ -124,6 +137,17 @@ func (p *Provider) Start(ctx context.Context) error {
 		}
 	}
 
+	// Start macro provider
+	if p.macroProvider != nil {
+		if err := p.macroProvider.Start(ctx); err != nil {
+			// Log warning but continue
+		}
+		// Subscribe to macro signal updates
+		p.macroProvider.SubscribeSignals(ctx, func(signal *entity.MacroSignal) {
+			p.onMacroUpdate(signal)
+		})
+	}
+
 	return nil
 }
 
@@ -146,8 +170,18 @@ func (p *Provider) Stop(ctx context.Context) error {
 	if p.lunarcrush != nil {
 		p.lunarcrush.Disconnect(ctx)
 	}
+	if p.macroProvider != nil {
+		p.macroProvider.Stop(ctx)
+	}
 
 	return nil
+}
+
+// onMacroUpdate handles incoming macro signal updates
+func (p *Provider) onMacroUpdate(signal *entity.MacroSignal) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cachedMacro = signal
 }
 
 // collectData periodically collects and broadcasts market signals
@@ -277,6 +311,17 @@ func (p *Provider) GetMarketSignal(ctx context.Context, symbol string) (*entity.
 	// Use cached sentiment if fresh API call failed
 	if signal.SocialSentiment == nil {
 		signal.SocialSentiment = p.recentSentiment[symbol]
+	}
+	// Add macro data (Fed policy probabilities)
+	if p.cachedMacro != nil {
+		signal.MacroBias = p.cachedMacro.Bias
+		signal.MacroStrength = p.cachedMacro.Strength
+		signal.MacroConfidence = p.cachedMacro.Confidence
+		// Extract Fed probabilities from nested FedWatch data
+		if p.cachedMacro.FedWatch != nil && p.cachedMacro.FedWatch.NextMeeting != nil {
+			signal.FedCutProb = p.cachedMacro.FedWatch.NextMeeting.CutProb
+			signal.FedHikeProb = p.cachedMacro.FedWatch.NextMeeting.HikeProb
+		}
 	}
 	p.mu.RUnlock()
 

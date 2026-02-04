@@ -17,10 +17,11 @@ type Signal struct {
 
 // MarketState represents current market state for strategy
 type MarketState struct {
-	Ticker    *entity.Ticker
-	OrderBook *entity.OrderBook
-	Position  *entity.Position
-	Orders    []*entity.Order
+	Ticker       *entity.Ticker
+	OrderBook    *entity.OrderBook
+	Position     *entity.Position
+	Orders       []*entity.Order
+	MarketSignal *entity.MarketSignal // Aggregated market signal from all data sources
 }
 
 // Strategy defines trading strategy interface
